@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>Jeu</title>
+		
+		<style>
+			#canvas {border:2px solid black;}			/*Cadre du jeu*/
+			#texte {									/*Cadre du score*/
+    			position:absolute;
+    			display:inline-block;
+    			margin-top:5em;
+    			margin-left:4em;
+   				border:3px solid black;
+    			width:10em;
+    			height:2.5em;
+    			font-size:2em;
+    			text-align:center;
+    			padding-top:1em;
+			}
+			#affichage{color:red;}						/*Affichage du score*/
+			#bouton {									/*Bouton de démarrage et de pause du jeu*/
+				position:absolute;
+    			display:inline-block;
+    			margin-top:13em;
+    			margin-left:10em;
+   				border:3px solid black; 	
+   				border-radius:1.5em;
+    			width:4em;
+    			height:2em;
+    			font-size:1.5em;
+    			text-align:center;
+    		}
+    		#message{
+				position:absolute;
+				display:inline-block;
+				margin-top:19em;
+    			margin-left:6em;
+				width:16em;
+    			height:6em;
+    			font-size:1.3em;
+    			text-align:center;
+			}
+			#perso {display:none;}						/*Personnage principal*/
+			#mechant {display:none;}					/*Personnage méchant*/
+			#etoile {display:none;}						/*Etoile jaune valant 1 point*/
+			#etoiler {display:none;}					/*Etoile rouge valant 2 points*/
+			#etoileg {display:none;}					/*Etoile grise valant 0 point*/
+			#etoilec {display:none;}					/*Etoile arc-en-ciel valant 4 points*/
+		</style> 
+		
+	</head>
+	<body>
+		<canvas id="canvas" height="768px" width="768px"></canvas>
+		<img id="perso" src="./Images/heroWalkCycleSpritesheet.png"/>
+		<img id="mechant" src="./Images/DonkeyKong.png"/>
+		<img id="etoile" src="./Images/etoile.png"/>
+		<img id="etoiler" src="./Images/etoileRouge.png"/>
+		<img id="etoileg" src="./Images/etoileGrise.png"/>
+		<img id="etoilec" src="./Images/etoileArcEnCiel.png"/>
+		<div id="texte">Score : <strong id="affichage"> </strong> </div>
+		<button id="bouton">Start</button>
+		<div id="message"> </div>
+	</body>
+    
+	<script>
+
+		var animFrame = window.requestAnimationFrame       ||
+						window.webkitRequestAnimationFrame ||
+						window.mozRequestAnimationFrame    ||
+						window.oRequestAnimationFrame      ||
+						window.msRequestAnimationFrame     ||
+						NULL;
+		var requestID;
+		var intervalID;
+		var perdu=false;				//Booléen correspondant à la perte du joueur
+
+		var canvas=document.getElementById("canvas").getContext("2d");
+		var perso=document.getElementById("perso");
+		var mechant=document.getElementById("mechant");
+		var etoile=document.getElementById("etoile");
+		var etoiler=document.getElementById("etoiler");
+		var etoileg=document.getElementById("etoileg");
+		var etoilec=document.getElementById("etoilec");
+		var texte=document.getElementById("texte");
+		var affichage=document.getElementById("affichage");
+		var message=document.getElementById("message");
+		var bouton=document.getElementById("bouton");
+		var nbr_Image=6;
+		var nbr_Image_Loaded=0;
+		var etat="beginning";			//Etat du jeu (beginning, started, stopped, ending)
+		var height=768;					//Taille du cadre de jeu
+		var width=768;
+		var taille_case=768/6;			//Taille d'une case
+
+		var t_perso=[0,0,0,0];			//Stockage lorsqu'une touche du clavier est appuyée
+		var t_perso_ancien=[0,0,1,0];	//Stockage de la dernière touche du clavier appuyée pour déterminer l'image à afficher du personnage
+		var t_mechant=[0,0,0,0];		//Stockage du déplacement du méchant à effectuer
+		var cpt_pas_perso=5;			//Numéro du pas lors d'un déplacement du personnage (0,1,2,3,4,5)
+		var cpt_pas_mechant=0;			//Numéro du pas lors d'un déplacement du méchant	(0,1)
+		var xy_perso=[0,0];				//Position du personnage
+		var xy_mechant=[640,640];		//Position du méchant
+		var xy_etoile=[256,256];		//Position de l'étoile
+		
+		var couleur="jaune";			//Couleur de l'étoile affichée (jaune,rouge,grise,arcenciel)
+		var ptsjaune=1;
+		var ptsrouge=2;					//Points associés à chaque couleur d'étoile
+		var ptsgrise=0;
+		var ptsarcenciel=4;
+		var attrape=false;				//Booléen correspond au personnage attrapant l'étoile
+		
+		var score=0;
+		var nb_etoilesj=0;
+		var nb_etoilesr=0;				//Nombre d'étoiles de chaque couleur attrapées
+		var nb_etoilesg=0;
+		var nb_etoilesc=0;
+		var rapidite=1200;				//Rapidité du méchant (durée entre 2 pas en ms)
+		var acceleration=1.05;			//Valeur par laquelle la rapidité du méchant est divisée quand le personnage attrape l'étoile 
+
+		
+		function loop() {
+			updateGame();
+			renderGame();
+			if (perdu===false) {requestID=animFrame(loop);}
+			else {cancelAnimationFrame(requestID); clearInterval(intervalID);}
+		}
+
+		function init() {				//Initialisation du jeu
+			canvas.clearRect(0,0,height,width);
+			canvas.drawImage(perso,128,256,128,128,xy_perso[0],xy_perso[1],taille_case,taille_case);
+			affichage_mechant();
+			affichage_etoile();
+			affichage.innerHTML=score;
+			requestID=animFrame(loop);							//Lancement de la boucle de jeu
+			intervalID=setInterval(mechant_rand,rapidite);		//Déplacement du méchant à intervalles réguliers
+		}
+
+		function updateGame() {
+			if (cpt_pas_perso<4) {													//Déplacement du personnage en cours
+				if (t_perso[0]===1) {gauche(xy_perso,taille_case/4);}
+				if (t_perso[1]===1) {droite(xy_perso,taille_case/4);}
+				if (t_perso[2]===1) {bas(xy_perso,taille_case/4);}
+				if (t_perso[3]===1) {haut(xy_perso,taille_case/4);}
+			}
+			if (cpt_pas_perso===4) {t_perso_ancien=t_perso; t_perso=[0,0,0,0];}		//Déplacement du personnage venant de terminer
+			if (cpt_pas_mechant===0) {												//Déplacement du méchant en cours
+				if (t_mechant[0]===1) {gauche(xy_mechant,taille_case);}
+				if (t_mechant[1]===1) {droite(xy_mechant,taille_case);}
+				if (t_mechant[2]===1) {bas(xy_mechant,taille_case);}
+				if (t_mechant[3]===1) {haut(xy_mechant,taille_case);}
+				t_mechant=[0,0,0,0];
+			}
+			if (xy_perso[0]===xy_etoile[0] && xy_perso[1]===xy_etoile[1]) {			//Personnage et étoile sur la même case
+				augmenter_score();
+				etoile_rand();
+				vitesse_mechant();
+				affichage.innerHTML=score;
+			}
+			if (xy_perso[0]===xy_mechant[0] && xy_perso[1]===xy_mechant[1]) {		//Personnage et méchant sur la même case
+				perdu=true;
+				etat="ending";
+				bouton.innerHTML="Restart";
+				message.innerHTML="Vous avez attrapé "+nb_etoilesc+" étoiles arc-en-ciel, "+nb_etoilesr+" étoiles rouges, "
+				+nb_etoilesj+" étoiles jaunes, "+nb_etoilesg+" étoiles grises";
+			}
+		}
+
+		function renderGame() {
+			
+			if (cpt_pas_perso<4) {					//Déplacement du personnage en cours
+				if (t_perso[0]===1) {
+					canvas.clearRect(0,0,height,width);
+					canvas.drawImage(perso,(cpt_pas_perso*128),0,128,128,xy_perso[0],xy_perso[1],taille_case,taille_case);
+					affichage_mechant();
+					affichage_etoile();
+				}
+				if (t_perso[1]===1) {
+					canvas.clearRect(0,0,height,width);
+					canvas.drawImage(perso,(cpt_pas_perso*128),128,128,128,xy_perso[0],xy_perso[1],taille_case,taille_case);
+					affichage_mechant();
+					affichage_etoile();
+				}
+				if (t_perso[2]===1) {
+					canvas.clearRect(0,0,height,width);
+					canvas.drawImage(perso,(cpt_pas_perso*128),256,128,128,xy_perso[0],xy_perso[1],taille_case,taille_case);
+					affichage_mechant();
+					affichage_etoile();
+				}
+				if (t_perso[3]===1) {
+					canvas.clearRect(0,0,height,width);
+					canvas.drawImage(perso,(cpt_pas_perso*128),384,128,128,xy_perso[0],xy_perso[1],taille_case,taille_case);
+					affichage_mechant();
+					affichage_etoile();
+				}
+			}
+			cpt_pas_perso++;
+			
+			if (cpt_pas_mechant===0) {				//Déplacement du méchant en cours
+				pos=128*(t_perso_ancien[1]+2*t_perso_ancien[2]+3*t_perso_ancien[3]);
+				canvas.clearRect(0,0,height,width);
+				canvas.drawImage(perso,384,pos,128,128,xy_perso[0],xy_perso[1],taille_case,taille_case);
+				affichage_mechant();
+				affichage_etoile();
+				cpt_pas_mechant++;
+			}
+			
+			if (attrape===true) {	//Si l'étoile est attrapée
+				affichage_etoile();
+				attrape=false;
+			}
+			
+		}
+
+
+		function bas(tab,x) {		//Fonction de déplacement d'un personnage vers le bas de x pixels
+			if (tab[1]<height-taille_case) {tab[1]+=x;}
+		}
+		
+		function haut(tab,x) {		//Fonction de déplacement d'un personnage vers le haut de x pixels
+			if (tab[1]>0) {tab[1]-=x;}
+		}
+
+		function gauche(tab,x) {	//Fonction de déplacement d'un personnage vers la gauche de x pixels
+			if (tab[0]>0) {tab[0]-=x}
+		}
+		
+		function droite(tab,x) {	//Fonction de déplacement d'un personnage vers la droite de x pixels
+			if (tab[0]<width-taille_case) {tab[0]+=x;}
+		}
+		
+		function etoile_rand() {	//Fonction aléatoire déterminant la couleur de l'étoile et sa position
+			attrape=true;
+			xy_etoile[0]=Math.floor(Math.random()*6)*taille_case;
+			xy_etoile[1]=Math.floor(Math.random()*6)*taille_case;
+			switch (Math.floor(Math.random()*11)) {
+				case 0:	case 1:	case 2:	case 3:	case 4:	case 5:
+					couleur="jaune";
+					break;
+				case 6:	case 7:
+					couleur="rouge";
+					break;
+				case 8:	case 9:
+					couleur="grise";
+					break;
+				case 10:
+					couleur="arcenciel";
+					break;
+			}
+		}
+		
+		function mechant_rand() {		//Fonction aléatoire déterminant le déplacement d'une case du méchant
+			temp=Math.floor(Math.random()*4);
+			t_mechant[temp]=1;
+			cpt_pas_mechant=0;
+		}
+		
+		function vitesse_mechant() {	//Fonction incrémentant la vitesse du méchant
+			clearInterval(intervalID);
+			rapidite=rapidite/acceleration;
+			intervalID=setInterval(mechant_rand,rapidite);
+		}
+		
+		function affichage_etoile() {	//Fonction d'affichage de l'étoile en fonction de sa couleur
+			if (couleur==="jaune") {
+				canvas.drawImage(etoile,0,0,649,618,xy_etoile[0]+42,xy_etoile[1]+42,43,41);
+			}
+			if (couleur==="rouge") {
+				canvas.drawImage(etoiler,0,0,649,619,xy_etoile[0]+42,xy_etoile[1]+42,43,41);
+			}
+			if (couleur==="grise") {
+				canvas.drawImage(etoileg,0,0,1000,1000,xy_etoile[0]+42,xy_etoile[1]+42,46,46);
+			}
+			if (couleur==="arcenciel") {
+				canvas.drawImage(etoilec,0,0,474,452,xy_etoile[0]+42,xy_etoile[1]+42,43,41);
+			}
+		}
+		
+		function affichage_mechant() {	//Fonction d'affichage du méchant
+			canvas.drawImage(mechant,0,0,3000,3000,xy_mechant[0],xy_mechant[1],taille_case,taille_case);
+		}
+		
+		function augmenter_score(){		//Fonction incrémentant le score et le nombre d'étoiles attrapées en fonction de la couleur de l'étoile
+			if (couleur==="jaune") {score=score+ptsjaune; nb_etoilesj++;}
+			if (couleur==="rouge") {score=score+ptsrouge; nb_etoilesr++;}
+			if (couleur==="grise") {score=score+ptsgrise; nb_etoilesg++;}
+			if (couleur==="arcenciel") {score=score+ptsarcenciel; nb_etoilesc++;}
+		}
+		
+		
+		perso.addEventListener("load",loaded,false);
+		mechant.addEventListener("load",loaded,false);
+		etoile.addEventListener("load",loaded,false);
+		etoiler.addEventListener("load",loaded,false);
+		etoileg.addEventListener("load",loaded,false);
+		etoilec.addEventListener("load",loaded,false);
+		
+		function loaded() {				//Fonction incrémentant le nombre d'images chargées
+			nbr_Image_Loaded++;
+		}
+
+		bouton.addEventListener("click",start_stop,false);
+		
+		function start_stop() {			//Fonction associée au bouton start/stop du jeu
+			if (etat==="beginning" && nbr_Image_Loaded===nbr_Image) {		//Démarrage du jeu
+				bouton.innerHTML="Stop";
+				etat="started";
+				init();
+			}
+			else if (etat==="started") {									//Pause
+				bouton.innerHTML="Start";
+				etat="stopped";
+				cancelAnimationFrame(requestID);
+				clearInterval(intervalID);
+			}
+			else if (etat==="stopped") {									//Continuer
+				bouton.innerHTML="Stop";
+				etat="started";
+				requestID=animFrame(loop);
+				intervalID=setInterval(mechant_rand,rapidite);
+			}
+			else if (etat==="ending") {										//Fin du jeu et redémarrage
+				t_perso=[0,0,0,0];
+				t_perso_ancien=[0,0,1,0];
+				t_mechant=[0,0,0,0];
+				cpt_pas_perso=5;
+				cpt_pas_mechant=0;
+				xy_perso=[0,0];
+				xy_mechant=[640,640];
+				xy_etoile=[256,256];
+				perdu=false;
+				attrape=false;
+				score=0;
+				nb_etoilesj=0;
+				nb_etoilesr=0;
+				nb_etoilesg=0;
+				nb_etoilesc=0;
+				couleur="jaune";
+				rapidite=1000;
+				bouton.innerHTML="Stop";
+				message.innerHTML="";
+				etat="started";
+				init();
+			}
+		}
+		
+		window.addEventListener("keydown", function (event) {				//Récupération des touches directionnelles du clavier
+	
+			if (event.defaultPrevented) {
+				return; // Should do nothing if the key event was already consumed.
+			}
+		
+			switch (event.key) {
+				case "ArrowLeft":
+				t_perso[0]=1;
+				cpt_pas_perso=0;
+				break;
+				case "ArrowRight":
+				t_perso[1]=1;
+				cpt_pas_perso=0;
+				break;
+				case "ArrowDown":
+				t_perso[2]=1;
+				cpt_pas_perso=0;
+				break;
+				case "ArrowUp":
+				t_perso[3]=1;
+				cpt_pas_perso=0;
+				break;
+				default:
+				return; // Quit when this doesn't handle the key event.
+			}
+		
+			// Consume the event for suppressing "double action".
+			event.preventDefault();
+		
+		}, true);
+
+	</script>
+	
+</html>
